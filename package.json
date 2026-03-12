@@ -1,0 +1,15 @@
+{
+  "name": "ming-jianghu-mobile",
+  "version": "1.0.0",
+  "description": "大明江湖志 - 手机版",
+  "main": "index.js",
+  "scripts": {
+    "build": "npx cap sync && npx cap open android",
+    "build:apk": "cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^5.7.8",
+    "@capacitor/cli": "^5.7.8",
+    "@capacitor/core": "^5.7.8"
+  }
+}
