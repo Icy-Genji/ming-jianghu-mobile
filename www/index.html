@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#2a2a2a">
+    <title>大明江湖志</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; }
+        html, body { 
+            width: 100%; 
+            height: 100%; 
+            overflow: hidden; 
+            background: #1a1a1a;
+            font-family: "Microsoft YaHei", "SimSun", serif;
+            position: fixed;
+        }
+        #gameCanvas { 
+            width: 100%; 
+            height: 100%; 
+            display: block;
+        }
+        #installPrompt {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(26, 20, 16, 0.95);
+            border: 2px solid #d4af37;
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            color: #d4af37;
+            z-index: 1000;
+            max-width: 80%;
+        }
+        #installPrompt h2 {
+            margin-bottom: 15px;
+            font-size: 24px;
+        }
+        #installPrompt p {
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #c4b8a0;
+            line-height: 1.6;
+        }
+        #installBtn, #startBtn {
+            background: #d4af37;
+            color: #1a1a1a;
+            border: none;
+            padding: 12px 30px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 5px;
+            font-weight: bold;
+        }
+        #installBtn:hover, #startBtn:hover {
+            background: #e5c048;
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="installPrompt">
+        <h2>🎮 大明江湖志</h2>
+        <p>明朝南京城武侠RPG<br>水墨风格 · 离线可玩</p>
+        <button id="installBtn" class="hidden">📱 添加到主屏幕</button>
+        <button id="startBtn">🎮 立即开始</button>
+        <p style="font-size: 12px; margin-top: 15px;">添加到主屏幕后可离线游玩</p>
+    </div>
+
+    <script>
+        // 游戏代码将在这里
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 设置画布大小
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resize();
+        window.addEventListener('resize', resize);
+        
+        // 简单的游戏循环
+        function gameLoop() {
+            ctx.fillStyle = '#2a2a2a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.fillStyle = '#d4af37';
+            ctx.font = '30px "Microsoft YaHei"';
+            ctx.textAlign = 'center';
+            ctx.fillText('大明江湖志', canvas.width/2, canvas.height/2 - 50);
+            
+            ctx.font = '16px "Microsoft YaHei"';
+            ctx.fillStyle = '#c4b8a0';
+            ctx.fillText('游戏加载中...', canvas.width/2, canvas.height/2 + 20);
+            
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // 安装提示
+        const installPrompt = document.getElementById('installPrompt');
+        const installBtn = document.getElementById('installBtn');
+        const startBtn = document.getElementById('startBtn');
+        
+        let deferredPrompt;
+        
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installBtn.classList.remove('hidden');
+        });
+        
+        installBtn.addEventListener('click', async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') {
+                    installPrompt.classList.add('hidden');
+                    gameLoop();
+                }
+            }
+        });
+        
+        startBtn.addEventListener('click', () => {
+            installPrompt.classList.add('hidden');
+            gameLoop();
+        });
+        
+        // 检查是否已安装
+        if (window.matchMedia('(display-mode: standalone)').matches) {
+            installPrompt.classList.add('hidden');
+            gameLoop();
+        }
+    </script>
+</body>
+</html>
