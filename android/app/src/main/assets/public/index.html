@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#2a2a2a">
+    <link rel="manifest" href="manifest.json">
+    <title>大明江湖志 - Demo V6 (烟雨江湖水墨风格)</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; }
+        html, body { 
+            width: 100%; 
+            height: 100%; 
+            overflow: hidden; 
+            background: #1a1a1a;
+            font-family: "Microsoft YaHei", "SimSun", serif;
+            position: fixed;
+        }
+        #gameCanvas { 
+            width: 100%; 
+            height: 100%; 
+            display: block;
+            image-rendering: pixelated;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #d4af37;
+            font-size: 14px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            pointer-events: none;
+            z-index: 100;
+        }
+        #ui h1 {
+            font-size: 18px;
+            margin-bottom: 5px;
+            color: #f0e6d3;
+            text-shadow: 2px 2px 6px rgba(0,0,0,0.9);
+        }
+        #controls {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: #c4b8a0;
+            font-size: 12px;
+            background: rgba(26, 20, 16, 0.85);
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #5a4a3a;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+        #controls div {
+            margin: 3px 0;
+        }
+        /* 手机虚拟摇杆 */
+        #virtualJoystick {
+            position: absolute;
+            bottom: 80px;
+            left: 40px;
+            width: 120px;
+            height: 120px;
+            background: rgba(255,255,255,0.1);
+            border: 2px solid rgba(212,175,55,0.5);
+            border-radius: 50%;
+            display: none;
+            z-index: 200;
+        }
+        #joystickKnob {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            background: rgba(212,175,55,0.8);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        /* 手机按钮 */
+        #mobileButtons {
+            position: absolute;
+            bottom: 80px;
+            right: 40px;
+            display: none;
+            z-index: 200;
+        }
+        .mobileBtn {
+            width: 60px;
+            height: 60px;
+            background: rgba(212,175,55,0.3);
+            border: 2px solid rgba(212,175,55,0.8);
+            border-radius: 50%;
+            color: #d4af37;
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 10px 0;
+            user-select: none;
+        }
+        .mobileBtn:active {
+            background: rgba(212,175,55,0.6);
+        }
+        @media (max-width: 768px) {
+            #virtualJoystick, #mobileButtons { display: block; }
+            #controls { display: none; }
+            #ui h1 { font-size: 14px; }
+            #ui { font-size: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="ui">
+        <h1>大明江湖志 - 南京城</h1>
+        <div id="position">位置: (100, 100)</div>
+        <div id="fps">FPS: 60</div>
+    </div>
+    <div id="controls">
+        <div>WASD - 移动角色</div>
+        <div>速度: 5格/秒 | 8方向动画</div>
+        <div>↑红 ↓绿 ←蓝 →黄</div>
+        <div>空格 - 切换天气</div>
+    </div>
+    <!-- 手机虚拟摇杆 -->
+    <div id="virtualJoystick">
+        <div id="joystickKnob"></div>
+    </div>
+    <!-- 手机按钮 -->
+    <div id="mobileButtons">
+        <div class="mobileBtn" id="weatherBtn">☁</div>
+    </div>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 游戏配置
+        const CONFIG = {
+            TILE_SIZE: 32,
+            MAP_WIDTH: 200,
+            MAP_HEIGHT: 200,
+            PLAYER_SIZE: 48,
+            MOVE_SPEED: 5 * 32,
+            WEATHER_CHANGE_INTERVAL: 10000
+        };
+        
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resize();
+        window.addEventListener('resize', resize);
+        
+        // 水墨色调配置
+        const INK_COLORS = {
+            paper: '#c4b8a0',
+            inkDark: '#2a2a2a',
+            inkMedium: '#4a4a4a',
+            inkLight: '#6a6a6a',
+            ochre: '#8B5A2B',
+            grayYellow: '#A89C8F',
+            cyanGray: '#6B7A78',
+            street: '#9a8b7a',
+            house: '#5a4a3a',
+            water: '#3d5a4e',
+            wall: '#3a3a3a'
+        };
+        
+        // 地形类型
+        const TERRAIN = { STREET: 0, HOUSE: 1, WATER: 2, WALL: 3 };
+        
+        // 地图数据
+        const mapData = new Uint8Array(CONFIG.MAP_WIDTH * CONFIG.MAP_HEIGHT);
+        const buildings = [];
+        
+        // 初始化地图
+        function initMap() {
+            for (let y = 0; y < CONFIG.MAP_HEIGHT; y++) {
+                for (let x = 0; x < CONFIG.MAP_WIDTH; x++) {
+                    const index = y * CONFIG.MAP_WIDTH + x;
+                    
+                    // 外围城墙
+                    if (x < 5 || x >= CONFIG.MAP_WIDTH - 5 || y < 5 || y >= CONFIG.MAP_HEIGHT - 5) {
+                        mapData[index] = TERRAIN.WALL;
+                    }
+                    // 主街道
+                    else if (Math.abs(x - 100) < 8 || Math.abs(y - 100) < 8) {
+                        mapData[index] = TERRAIN.STREET;
+                    }
+                    // 次要街道
+                    else if (x % 40 < 6 || y % 40 < 6) {
+                        mapData[index] = TERRAIN.STREET;
+                    }
+                    // 秦淮河
+                    else if (Math.abs(y - (80 + Math.sin(x * 0.05) * 20)) < 5) {
+                        mapData[index] = TERRAIN.WATER;
+                    }
+                    // 玄武湖
+                    else if (Math.sqrt((x - 150) ** 2 + (y - 50) ** 2) < 25) {
+                        mapData[index] = TERRAIN.WATER;
+                    }
+                    else {
+                        mapData[index] = TERRAIN.HOUSE;
+                    }
+                }
+            }
+            
+            // 建筑物
+            const buildingPositions = [
+                { x: 30, y: 30, w: 15, h: 12, name: "夫子庙" },
+                { x: 160, y: 40, w: 20, h: 15, name: "明孝陵" },
+                { x: 40, y: 140, w: 18, h: 14, name: "中华门" },
+                { x: 140, y: 130, w: 16, h: 16, name: "明城墙" },
+                { x: 85, y: 85, w: 12, h: 10, name: "贡院" }
+            ];
+            
+            buildingPositions.forEach(b => {
+                for (let y = b.y; y < b.y + b.h && y < CONFIG.MAP_HEIGHT; y++) {
+                    for (let x = b.x; x < b.x + b.w && x < CONFIG.MAP_WIDTH; x++) {
+                        const index = y * CONFIG.MAP_WIDTH + x;
+                        if (mapData[index] !== TERRAIN.WATER && mapData[index] !== TERRAIN.WALL) {
+                            mapData[index] = TERRAIN.STREET;
+                        }
+                    }
+                }
+                buildings.push(b);
+            });
+        }
+        
+        // 玩家对象 - 8方向动画
+        const player = {
+            x: 100 * CONFIG.TILE_SIZE,
+            y: 100 * CONFIG.TILE_SIZE,
+            direction: 'down',
+            isMoving: false,
+            frame: 0,
+            animationTimer: 0,
+            // 8方向: up, down, left, right, up-left, up-right, down-left, down-right
+            directions: {
+                up: { color: '#ff6b6b', frame: 0 },
+                down: { color: '#51cf66', frame: 0 },
+                left: { color: '#339af0', frame: 0 },
+                right: { color: '#ffd43b', frame: 0 }
+            }
+        };
+        
+        // 加载角色原图（512x512，自动去除白色背景）
+        const playerImage = new Image();
+        playerImage.crossOrigin = 'anonymous';
+        let processedPlayerImage = null;
+        
+        playerImage.onload = () => {
+            console.log('角色原图加载成功，正在处理透明背景...');
+            
+            // 创建 canvas 处理图片（使用原图尺寸 512x512）
+            const canvas = document.createElement('canvas');
+            canvas.width = playerImage.width;
+            canvas.height = playerImage.height;
+            const ctx = canvas.getContext('2d');
+            
+            // 绘制原图
+            ctx.drawImage(playerImage, 0, 0);
+            
+            // 获取像素数据
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            // 去除白色背景 - 使用洪水填充算法，只去除外围背景
+            const width = canvas.width;
+            const height = canvas.height;
+            const threshold = 250; // 白色阈值
+            
+            // 创建访问标记数组
+            const visited = new Uint8Array(width * height);
+            const transparent = new Uint8Array(width * height);
+            
+            // 从四个角落开始洪水填充，标记背景区域
+            const queue = [];
+            const corners = [
+                [0, 0], [width-1, 0], 
+                [0, height-1], [width-1, height-1]
+            ];
+            
+            for (const [cx, cy] of corners) {
+                const idx = (cy * width + cx) * 4;
+                const r = data[idx], g = data[idx+1], b = data[idx+2];
+                if (r >= threshold && g >= threshold && b >= threshold && !visited[cy * width + cx]) {
+                    queue.push([cx, cy]);
+                    visited[cy * width + cx] = 1;
+                }
+            }
+            
+            // 洪水填充 - 只标记与角落相连的白色区域（背景）
+            while (queue.length > 0) {
+                const [x, y] = queue.shift();
+                const idx = y * width + x;
+                transparent[idx] = 1;
+                
+                // 检查四个方向
+                const neighbors = [[x+1,y], [x-1,y], [x,y+1], [x,y-1]];
+                for (const [nx, ny] of neighbors) {
+                    if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                        const nIdx = (ny * width + nx);
+                        const pixelIdx = nIdx * 4;
+                        if (!visited[nIdx]) {
+                            const r = data[pixelIdx], g = data[pixelIdx+1], b = data[pixelIdx+2];
+                            // 如果相邻像素也是白色，加入队列
+                            if (r >= threshold && g >= threshold && b >= threshold) {
+                                visited[nIdx] = 1;
+                                queue.push([nx, ny]);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 将标记的背景区域设为透明
+            for (let i = 0; i < transparent.length; i++) {
+                if (transparent[i]) {
+                    data[i * 4 + 3] = 0; // Alpha = 0
+                }
+            }
+            
+            // 将处理后的数据放回 canvas
+            ctx.putImageData(imageData, 0, 0);
+            
+            // 创建新的图片对象
+            processedPlayerImage = new Image();
+            processedPlayerImage.onload = () => {
+                console.log('角色图片处理完成（白色背景已去除）');
+            };
+            processedPlayerImage.src = canvas.toDataURL('image/png');
+        };
+        
+        playerImage.onerror = () => console.log('角色图片加载失败，使用默认绘制');
+        // 直接加载原图 512x512
+        playerImage.src = 'assets_input/characters_player/walk_left_01.png?' + Date.now();
+        
+        // 键盘输入
+        const keys = {};
+        window.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+            if (e.key === ' ') {
+                weatherSystem.toggleWeather();
+            }
+        });
+        window.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+        });
+        
+        // 碰撞检测
+        function checkCollision(x, y) {
+            const halfSize = CONFIG.PLAYER_SIZE / 2;
+            const corners = [
+                { x: x - halfSize + 4, y: y - halfSize + 4 },
+                { x: x + halfSize - 4, y: y - halfSize + 4 },
+                { x: x - halfSize + 4, y: y + halfSize - 4 },
+                { x: x + halfSize - 4, y: y + halfSize - 4 }
+            ];
+            
+            for (let corner of corners) {
+                const tileX = Math.floor(corner.x / CONFIG.TILE_SIZE);
+                const tileY = Math.floor(corner.y / CONFIG.TILE_SIZE);
+                
+                if (tileX < 0 || tileX >= CONFIG.MAP_WIDTH || 
+                    tileY < 0 || tileY >= CONFIG.MAP_HEIGHT) {
+                    return true;
+                }
+                
+                const terrain = mapData[tileY * CONFIG.MAP_WIDTH + tileX];
+                if (terrain === TERRAIN.HOUSE || terrain === TERRAIN.WATER || terrain === TERRAIN.WALL) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        // 更新玩家
+        function updatePlayer(dt) {
+            let dx = 0;
+            let dy = 0;
+            
+            if (keys['w']) dy = -1;
+            if (keys['s']) dy = 1;
+            if (keys['a']) dx = -1;
+            if (keys['d']) dx = 1;
+            
+            // 8方向判断
+            if (dx !== 0 || dy !== 0) {
+                player.isMoving = true;
+                
+                if (dy < 0 && dx === 0) player.direction = 'up';
+                else if (dy > 0 && dx === 0) player.direction = 'down';
+                else if (dx < 0 && dy === 0) player.direction = 'left';
+                else if (dx > 0 && dy === 0) player.direction = 'right';
+                
+                // 对角线移动归一化
+                if (dx !== 0 && dy !== 0) {
+                    const len = Math.sqrt(dx * dx + dy * dy);
+                    dx /= len;
+                    dy /= len;
+                }
+                
+                // 动画帧更新
+                player.animationTimer += dt * 10;
+                if (player.animationTimer > 1) {
+                    player.frame = (player.frame + 1) % 4;
+                    player.animationTimer = 0;
+                }
+            } else {
+                player.isMoving = false;
+                player.frame = 0;
+            }
+            
+            // 移动
+            if (player.isMoving) {
+                const moveDistance = CONFIG.MOVE_SPEED * dt;
+                const newX = player.x + dx * moveDistance;
+                const newY = player.y + dy * moveDistance;
+                
+                if (!checkCollision(newX, player.y)) player.x = newX;
+                if (!checkCollision(player.x, newY)) player.y = newY;
+            }
+            
+            // 更新UI
+            const tileX = Math.floor(player.x / CONFIG.TILE_SIZE);
+            const tileY = Math.floor(player.y / CONFIG.TILE_SIZE);
+            document.getElementById('position').textContent = `位置: (${tileX}, ${tileY})`;
+        }
+        
+        // 绘制水墨风格瓦片
+        function drawInkTile(x, y, terrain) {
+            const px = x * CONFIG.TILE_SIZE;
+            const py = y * CONFIG.TILE_SIZE;
+            
+            // 基础颜色
+            let baseColor;
+            switch(terrain) {
+                case TERRAIN.STREET: baseColor = INK_COLORS.street; break;
+                case TERRAIN.HOUSE: baseColor = INK_COLORS.house; break;
+                case TERRAIN.WATER: baseColor = INK_COLORS.water; break;
+                case TERRAIN.WALL: baseColor = INK_COLORS.wall; break;
+                default: baseColor = INK_COLORS.paper;
+            }
+            
+            // 绘制基础瓦片
+            ctx.fillStyle = baseColor;
+            ctx.fillRect(px, py, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE);
+            
+            // 水墨边缘晕染效果
+            const gradient = ctx.createRadialGradient(
+                px + CONFIG.TILE_SIZE/2, py + CONFIG.TILE_SIZE/2, 0,
+                px + CONFIG.TILE_SIZE/2, py + CONFIG.TILE_SIZE/2, CONFIG.TILE_SIZE
+            );
+            gradient.addColorStop(0, 'rgba(0,0,0,0)');
+            gradient.addColorStop(0.7, 'rgba(0,0,0,0)');
+            gradient.addColorStop(1, 'rgba(0,0,0,0.15)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(px, py, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE);
+            
+            // 添加纸张纹理噪点
+            if (Math.random() < 0.1) {
+                ctx.fillStyle = 'rgba(0,0,0,0.05)';
+                ctx.fillRect(px + Math.random() * CONFIG.TILE_SIZE, 
+                           py + Math.random() * CONFIG.TILE_SIZE, 1, 1);
+            }
+            
+            // 瓦片缝隙
+            ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+            ctx.lineWidth = 0.5;
+            ctx.strokeRect(px, py, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE);
+        }
+        
+        // 绘制水墨风格建筑
+        function drawInkBuilding(building, isBehind) {
+            const x = building.x * CONFIG.TILE_SIZE;
+            const y = building.y * CONFIG.TILE_SIZE;
+            const w = building.w * CONFIG.TILE_SIZE;
+            const h = building.h * CONFIG.TILE_SIZE;
+            
+            ctx.save();
+            
+            // 如果在玩家后面，半透明
+            if (isBehind) {
+                ctx.globalAlpha = 0.5;
+            }
+            
+            // 建筑主体 - 水墨赭石色
+            const buildingGradient = ctx.createLinearGradient(x, y, x, y + h);
+            buildingGradient.addColorStop(0, '#6d5047');
+            buildingGradient.addColorStop(0.5, '#5d4037');
+            buildingGradient.addColorStop(1, '#4a3520');
+            ctx.fillStyle = buildingGradient;
+            ctx.fillRect(x, y, w, h);
+            
+            // 水墨边缘晕染
+            ctx.strokeStyle = '#2a1f18';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, w, h);
+            
+            // 屋顶 - 飞檐效果
+            ctx.fillStyle = '#3a2517';
+            ctx.beginPath();
+            ctx.moveTo(x - 8, y);
+            ctx.lineTo(x + w/2, y - 15);
+            ctx.lineTo(x + w + 8, y);
+            ctx.lineTo(x + w - 5, y + 5);
+            ctx.lineTo(x + 5, y + 5);
+            ctx.closePath();
+            ctx.fill();
+            
+            // 建筑名称
+            ctx.fillStyle = '#d4af37';
+            ctx.font = 'bold 11px "Microsoft YaHei"';
+            ctx.textAlign = 'center';
+            ctx.shadowColor = 'rgba(0,0,0,0.8)';
+            ctx.shadowBlur = 4;
+            ctx.fillText(building.name, x + w/2, y + h/2);
+            ctx.shadowBlur = 0;
+            
+            ctx.restore();
+        }
+        
+        // 绘制8方向动画角色
+        function drawAnimatedPlayer() {
+            const cx = player.x;
+            const cy = player.y;
+            const size = CONFIG.PLAYER_SIZE;
+            const halfSize = size / 2;
+            
+            ctx.save();
+            
+            // 水墨投影
+            ctx.fillStyle = 'rgba(0,0,0,0.25)';
+            ctx.beginPath();
+            ctx.ellipse(cx + 3, cy + halfSize - 3, halfSize * 0.7, halfSize * 0.25, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 行走动画偏移
+            let bounceY = 0;
+            if (player.isMoving) {
+                bounceY = Math.sin(player.frame * Math.PI / 2) * 3;
+            }
+            
+            // 如果角色图片已加载，使用图片绘制
+            const imgToDraw = processedPlayerImage || playerImage;
+            if (imgToDraw && imgToDraw.complete && imgToDraw.naturalWidth > 0) {
+                ctx.save();
+                
+                // 根据方向翻转图片
+                if (player.direction === 'right') {
+                    ctx.translate(cx * 2, 0);
+                    ctx.scale(-1, 1);
+                }
+                
+                // 绘制角色图片 (512x512 原图缩放显示，保持清晰度)
+                const drawSize = 96; // 显示尺寸 96x96，原图512缩放到96，比例约5.3:1
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                ctx.drawImage(
+                    imgToDraw, 
+                    cx - drawSize/2, 
+                    cy - drawSize/2 + bounceY, 
+                    drawSize, 
+                    drawSize
+                );
+                
+                ctx.restore();
+            } else {
+                // 备用：使用默认方块绘制
+                const dirInfo = player.directions[player.direction];
+                const baseColor = dirInfo.color;
+                
+                const bodyGradient = ctx.createLinearGradient(cx - halfSize, cy - halfSize + bounceY, 
+                                                             cx + halfSize, cy + halfSize + bounceY);
+                bodyGradient.addColorStop(0, baseColor);
+                bodyGradient.addColorStop(0.5, baseColor);
+                bodyGradient.addColorStop(1, '#2a2a2a');
+                
+                ctx.fillStyle = bodyGradient;
+                ctx.fillRect(cx - halfSize, cy - halfSize + bounceY, size, size);
+                
+                ctx.strokeStyle = '#1a1a1a';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(cx - halfSize, cy - halfSize + bounceY, size, size);
+            }
+            
+            ctx.restore();
+        }
+        
+        // 检查玩家是否在建筑后面
+        function isPlayerBehindBuilding(building) {
+            const halfSize = CONFIG.PLAYER_SIZE / 2;
+            const playerLeft = player.x - halfSize;
+            const playerRight = player.x + halfSize;
+            const playerTop = player.y - halfSize;
+            const playerBottom = player.y + halfSize;
+            
+            const buildingLeft = building.x * CONFIG.TILE_SIZE;
+            const buildingRight = (building.x + building.w) * CONFIG.TILE_SIZE;
+            const buildingTop = building.y * CONFIG.TILE_SIZE;
+            const buildingBottom = (building.y + building.h) * CONFIG.TILE_SIZE;
+            
+            return playerLeft < buildingRight && playerRight > buildingLeft &&
+                   playerTop < buildingBottom && playerBottom > buildingTop &&
+                   player.y > buildingTop + (buildingBottom - buildingTop) * 0.3;
+        }
+        
+        // 天气系统
+        const weatherSystem = {
+            type: 'clear', // clear, rain, fog
+            rainDrops: [],
+            fogParticles: [],
+            
+            init() {
+                // 初始化雨滴
+                for (let i = 0; i < 300; i++) {
+                    this.rainDrops.push({
+                        x: Math.random() * canvas.width,
+                        y: Math.random() * canvas.height,
+                        speed: 5 + Math.random() * 5,
+                        length: 10 + Math.random() * 10
+                    });
+                }
+                
+                // 初始化雾气
+                for (let i = 0; i < 100; i++) {
+                    this.fogParticles.push({
+                        x: Math.random() * canvas.width,
+                        y: Math.random() * canvas.height,
+                        size: 20 + Math.random() * 60,
+                        opacity: 0.1 + Math.random() * 0.2,
+                        drift: (Math.random() - 0.5) * 0.5
+                    });
+                }
+            },
+            
+            toggleWeather() {
+                const types = ['clear', 'rain', 'fog'];
+                const currentIndex = types.indexOf(this.type);
+                this.type = types[(currentIndex + 1) % types.length];
+            },
+            
+            update() {
+                if (this.type === 'rain') {
+                    this.rainDrops.forEach(drop => {
+                        drop.y += drop.speed;
+                        drop.x += Math.sin(drop.y * 0.01) * 0.5;
+                        
+                        if (drop.y > canvas.height) {
+                            drop.y = -drop.length;
+                            drop.x = Math.random() * canvas.width;
+                        }
+                    });
+                }
+                
+                if (this.type === 'fog' || this.type === 'rain') {
+                    this.fogParticles.forEach(particle => {
+                        particle.x += particle.drift;
+                        
+                        if (particle.x > canvas.width) particle.x = 0;
+                        if (particle.x < 0) particle.x = canvas.width;
+                    });
+                }
+            },
+            
+            draw() {
+                if (this.type === 'rain') {
+                    ctx.strokeStyle = 'rgba(180, 190, 200, 0.4)';
+                    ctx.lineWidth = 1;
+                    
+                    this.rainDrops.forEach(drop => {
+                        ctx.beginPath();
+                        ctx.moveTo(drop.x, drop.y);
+                        ctx.lineTo(drop.x + Math.sin(drop.y * 0.01), drop.y + drop.length);
+                        ctx.stroke();
+                    });
+                }
+                
+                if (this.type === 'fog' || this.type === 'rain') {
+                    this.fogParticles.forEach(particle => {
+                        const gradient = ctx.createRadialGradient(
+                            particle.x, particle.y, 0,
+                            particle.x, particle.y, particle.size
+                        );
+                        gradient.addColorStop(0, `rgba(160, 170, 175, ${particle.opacity})`);
+                        gradient.addColorStop(1, 'rgba(160, 170, 175, 0)');
+                        
+                        ctx.fillStyle = gradient;
+                        ctx.beginPath();
+                        ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+                        ctx.fill();
+                    });
+                }
+            }
+        };
+        
+        weatherSystem.init();
+        
+        // 绘制小地图
+        function drawMinimap() {
+            const size = 140;
+            const x = canvas.width - size - 20;
+            const y = 20;
+            const scale = size / Math.max(CONFIG.MAP_WIDTH, CONFIG.MAP_HEIGHT);
+            
+            ctx.save();
+            
+            // 背景 - 水墨风格
+            ctx.fillStyle = 'rgba(26, 20, 16, 0.9)';
+            ctx.fillRect(x, y, size, size);
+            ctx.strokeStyle = '#d4af37';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, size, size);
+            
+            // 绘制地图缩略
+            for (let my = 0; my < CONFIG.MAP_HEIGHT; my += 4) {
+                for (let mx = 0; mx < CONFIG.MAP_WIDTH; mx += 4) {
+                    const terrain = mapData[my * CONFIG.MAP_WIDTH + mx];
+                    const px = x + mx * scale;
+                    const py = y + my * scale;
+                    
+                    switch(terrain) {
+                        case TERRAIN.STREET: ctx.fillStyle = '#8a7f6b'; break;
+                        case TERRAIN.HOUSE: ctx.fillStyle = '#4a4035'; break;
+                        case TERRAIN.WATER: ctx.fillStyle = '#2d4a3e'; break;
+                        case TERRAIN.WALL: ctx.fillStyle = '#3a3a3a'; break;
+                    }
+                    ctx.fillRect(px, py, 4 * scale + 1, 4 * scale + 1);
+                }
+            }
+            
+            // 玩家位置
+            const playerX = x + (player.x / CONFIG.TILE_SIZE) * scale;
+            const playerY = y + (player.y / CONFIG.TILE_SIZE) * scale;
+            ctx.fillStyle = '#ff4444';
+            ctx.beginPath();
+            ctx.arc(playerX, playerY, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            
+            // 视口框
+            ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+            ctx.lineWidth = 1;
+            const viewW = (canvas.width / CONFIG.TILE_SIZE) * scale;
+            const viewH = (canvas.height / CONFIG.TILE_SIZE) * scale;
+            ctx.strokeRect(playerX - viewW/2, playerY - viewH/2, viewW, viewH);
+            
+            ctx.restore();
+        }
+        
+        // 绘制晕影效果
+        function drawVignette() {
+            const gradient = ctx.createRadialGradient(
+                canvas.width/2, canvas.height/2, canvas.height * 0.3,
+                canvas.width/2, canvas.height/2, canvas.height * 0.8
+            );
+            gradient.addColorStop(0, 'rgba(0,0,0,0)');
+            gradient.addColorStop(1, 'rgba(0,0,0,0.25)');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+        
+        // 主渲染函数
+        function render() {
+            // 清空画布 - 宣纸底色
+            ctx.fillStyle = INK_COLORS.paper;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 计算视口偏移
+            const offsetX = player.x - canvas.width / 2;
+            const offsetY = player.y - canvas.height / 2;
+            
+            ctx.save();
+            ctx.translate(-offsetX, -offsetY);
+            
+            // 计算可见瓦片
+            const startTileX = Math.floor(offsetX / CONFIG.TILE_SIZE) - 1;
+            const startTileY = Math.floor(offsetY / CONFIG.TILE_SIZE) - 1;
+            const endTileX = startTileX + Math.ceil(canvas.width / CONFIG.TILE_SIZE) + 2;
+            const endTileY = startTileY + Math.ceil(canvas.height / CONFIG.TILE_SIZE) + 2;
+            
+            // 绘制地图
+            for (let y = Math.max(0, startTileY); y < Math.min(CONFIG.MAP_HEIGHT, endTileY); y++) {
+                for (let x = Math.max(0, startTileX); x < Math.min(CONFIG.MAP_WIDTH, endTileX); x++) {
+                    const terrain = mapData[y * CONFIG.MAP_WIDTH + x];
+                    drawInkTile(x, y, terrain);
+                }
+            }
+            
+            // 按Y坐标排序绘制建筑和玩家
+            const renderList = [];
+            
+            buildings.forEach(b => {
+                const isBehind = isPlayerBehindBuilding(b);
+                renderList.push({
+                    type: 'building',
+                    y: b.y * CONFIG.TILE_SIZE,
+                    data: b,
+                    isBehind: isBehind
+                });
+            });
+            
+            renderList.push({
+                type: 'player',
+                y: player.y
+            });
+            
+            renderList.sort((a, b) => a.y - b.y);
+            
+            renderList.forEach(item => {
+                if (item.type === 'building') {
+                    drawInkBuilding(item.data, item.isBehind);
+                } else if (item.type === 'player') {
+                    drawAnimatedPlayer();
+                }
+            });
+            
+            ctx.restore();
+            
+            // 绘制天气效果
+            weatherSystem.draw();
+            
+            // 绘制UI层
+            drawMinimap();
+            drawVignette();
+        }
+        
+        // 游戏循环
+        let lastTime = 0;
+        let frameCount = 0;
+        let lastFpsTime = 0;
+        
+        function gameLoop(timestamp) {
+            const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+            lastTime = timestamp;
+            
+            // FPS计算
+            frameCount++;
+            if (timestamp - lastFpsTime > 1000) {
+                document.getElementById('fps').textContent = `FPS: ${frameCount}`;
+                frameCount = 0;
+                lastFpsTime = timestamp;
+            }
+            
+            updatePlayer(dt);
+            weatherSystem.update();
+            render();
+            
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // 手机触摸控制
+        const joystick = document.getElementById('virtualJoystick');
+        const joystickKnob = document.getElementById('joystickKnob');
+        const weatherBtn = document.getElementById('weatherBtn');
+        let joystickActive = false;
+        let joystickCenter = { x: 0, y: 0 };
+        
+        // 虚拟摇杆触摸控制
+        joystick.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            joystickActive = true;
+            const touch = e.touches[0];
+            const rect = joystick.getBoundingClientRect();
+            joystickCenter = {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2
+            };
+            updateJoystick(touch.clientX, touch.clientY);
+        });
+        
+        joystick.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (joystickActive) {
+                const touch = e.touches[0];
+                updateJoystick(touch.clientX, touch.clientY);
+            }
+        });
+        
+        joystick.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            joystickActive = false;
+            joystickKnob.style.transform = 'translate(-50%, -50%)';
+            // 停止移动
+            keys['w'] = false;
+            keys['a'] = false;
+            keys['s'] = false;
+            keys['d'] = false;
+        });
+        
+        function updateJoystick(clientX, clientY) {
+            const maxDistance = 35;
+            let dx = clientX - joystickCenter.x;
+            let dy = clientY - joystickCenter.y;
+            
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance > maxDistance) {
+                dx = (dx / distance) * maxDistance;
+                dy = (dy / distance) * maxDistance;
+            }
+            
+            joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+            
+            // 转换为方向键
+            const threshold = 10;
+            keys['a'] = dx < -threshold;
+            keys['d'] = dx > threshold;
+            keys['w'] = dy < -threshold;
+            keys['s'] = dy > threshold;
+        }
+        
+        // 天气按钮
+        weatherBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            weatherSystem.toggleWeather();
+        });
+        weatherBtn.addEventListener('click', () => {
+            weatherSystem.toggleWeather();
+        });
+        
+        // 注册 Service Worker (支持离线游玩)
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js')
+                .then((reg) => console.log('Service Worker 注册成功'))
+                .catch((err) => console.log('Service Worker 注册失败:', err));
+        }
+        
+        // 添加到主屏幕提示
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            console.log('可以添加到主屏幕');
+        });
+        
+        // 初始化
+        initMap();
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+	"appId": "com.mingjianghu.game",
+	"appName": "大明江湖志",
+	"webDir": "www",
+	"server": {
+		"androidScheme": "https"
+	},
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 2000,
+			"backgroundColor": "#2a2a2a"
+		}
+	}
+}
